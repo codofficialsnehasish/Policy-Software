@@ -80,6 +80,11 @@
                                 <div class="col-md-2 mt-4">
                                     <button type="submit" name="button" value="search" class="btn btn-success">Search Statement</button>
                                 </div>
+                                <div class="col-md-2 mt-4">
+                                    <div class="float-end d-none d-md-block">
+                                        <button type="submit" name="button" value="download" class="btn btn-primary"><i class="fas fa-file-pdf me-2"></i> Print To PDF</button>
+                                    </div>
+                                </div>
                                 {{-- <div class="col-md-2 mt-4">
                                     <div class="float-end d-none d-md-block">
                                         <button type="submit" name="button" value="download" class="btn btn-primary"><i class="fas fa-file-pdf me-2"></i> Print To PDF</button>

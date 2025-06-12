@@ -755,6 +755,10 @@ class ReportController extends Controller
 
     public function month_wise_statement(Request $request)
     {
+        $button = $request->input('button');
+        if($button == 'download'){
+            return $this->exportMonthStatementPdf($request);
+        }
         $selectedMonth = $request->input('month', now()->month); // Default to current month if not selected
         $selectedYear = $request->input('year', now()->year);    // You can hardcode or allow year selection too
 
@@ -829,13 +833,61 @@ class ReportController extends Controller
     //         ->sum('amount');
     // }
 
-    public function getMonthWiseStatement($startDate, $endDate)
+    // public function getMonthWiseStatement($startDate, $endDate) //comanted on 12-06-2025
+    // {
+    //     $customers = DB::table('customers')
+    //         ->join('policy_payment_modes', 'customers.id', '=', 'policy_payment_modes.customer_id')
+    //         ->whereBetween('policy_payment_modes.payment_date', [$startDate, $endDate])
+    //         ->select('customers.id', 'customers.name')
+    //         ->groupBy('customers.id', 'customers.name')
+    //         ->get();
+
+    //     $statements = [];
+
+    //     foreach ($customers as $customer) {
+    //         $customerId = $customer->id;
+
+    //         // Previous month's closing balance (acts as opening balance for this month)
+    //         $previousMonthEndDate = date('Y-m-d', strtotime('-1 day', strtotime($startDate)));
+    //         $openingBalance = $this->calculateClosingBalance($customerId, $previousMonthEndDate);
+
+    //         // Credits (Deposits from customer to me) - policy_payment_modes
+    //         $cashDeposited = DB::table('policy_payment_modes')
+    //             ->where('customer_id', $customerId)
+    //             ->whereBetween('payment_date', [$startDate, $endDate])
+    //             ->sum('amount');
+
+    //         // Debits (Payments I made to policy) - policys_payments
+    //         $cashPaidToPolicy = DB::table('policys_payments')
+    //             ->where('customer_id', $customerId)
+    //             ->whereBetween('payment_date', [$startDate, $endDate])
+    //             ->sum('amount');
+
+    //         // Calculate closing balance
+    //         $closingBalance = $openingBalance + $cashDeposited - $cashPaidToPolicy;
+
+    //         // Only add to statement if closing balance is positive
+    //         if ($closingBalance > 0) {
+    //             $statements[] = [
+    //                 'customer_id' => $customerId,
+    //                 'customer_name' => $customer->name,
+    //                 'opening_balance' => $openingBalance,
+    //                 'cash_deposited' => $cashDeposited,
+    //                 'cash_paid_to_policy' => $cashPaidToPolicy,
+    //                 'closing_balance' => $closingBalance,
+    //             ];
+    //         }
+    //     }
+
+    //     return $statements;
+    // }
+
+    public function getMonthWiseStatement($startDate, $endDate) //ready on 12-06-2025
     {
+        // Get all customers who have ever had any transaction (payment or deposit)
+        // or you might want all customers regardless - depends on your business logic
         $customers = DB::table('customers')
-            ->join('policy_payment_modes', 'customers.id', '=', 'policy_payment_modes.customer_id')
-            ->whereBetween('policy_payment_modes.payment_date', [$startDate, $endDate])
-            ->select('customers.id', 'customers.name')
-            ->groupBy('customers.id', 'customers.name')
+            ->select('id', 'name')
             ->get();
 
         $statements = [];
@@ -851,19 +903,19 @@ class ReportController extends Controller
             $cashDeposited = DB::table('policy_payment_modes')
                 ->where('customer_id', $customerId)
                 ->whereBetween('payment_date', [$startDate, $endDate])
-                ->sum('amount');
+                ->sum('amount') ?? 0;
 
             // Debits (Payments I made to policy) - policys_payments
             $cashPaidToPolicy = DB::table('policys_payments')
                 ->where('customer_id', $customerId)
                 ->whereBetween('payment_date', [$startDate, $endDate])
-                ->sum('amount');
+                ->sum('amount') ?? 0;
 
             // Calculate closing balance
-            $closingBalance = $openingBalance + $cashDeposited - $cashPaidToPolicy;
+            $closingBalance = $openingBalance + ($cashDeposited - $cashPaidToPolicy);
 
-            // Only add to statement if closing balance is positive
-            if ($closingBalance > 0) {
+            // Add to statement regardless of closing balance (remove the if condition)
+            if ($closingBalance >= 0) {
                 $statements[] = [
                     'customer_id' => $customerId,
                     'customer_name' => $customer->name,
@@ -871,11 +923,40 @@ class ReportController extends Controller
                     'cash_deposited' => $cashDeposited,
                     'cash_paid_to_policy' => $cashPaidToPolicy,
                     'closing_balance' => $closingBalance,
+                    'had_activity' => ($cashDeposited > 0 || $cashPaidToPolicy > 0) // Flag to indicate if there was any activity
                 ];
             }
         }
 
         return $statements;
+    }
+
+    private function exportMonthStatementPdf(Request $request)
+    {
+        // print_r($data);die;
+        try {
+            $selectedMonth = $request->input('month', now()->month); // Default to current month if not selected
+            $selectedYear = $request->input('year', now()->year);    // You can hardcode or allow year selection too
+
+            // Calculate the first and last day of the selected month
+            $startDate = date("Y-m-01", strtotime("$selectedYear-$selectedMonth-01"));
+            $endDate = date("Y-m-t", strtotime("$selectedYear-$selectedMonth-01")); // 't' gives last day of month
+
+            // Now pass these to your calculation function:
+            $statements = $this->getMonthWiseStatement($startDate, $endDate);
+
+            $pdf = Pdf::loadView("admin.pdf.month_statement", [
+                'title' => 'Customer Total Statement',
+                'selectedMonth' => $selectedMonth,
+                'selectedYear' => $selectedYear,
+                'statements' => $statements,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ]);
+            return $pdf->download('Customer Total Statement.pdf');
+        } catch (\Exception $e) {
+            return back()->with('error','An error occurred while generating the PDF. '.$e->getMessage());
+        }
     }
 
     /**
